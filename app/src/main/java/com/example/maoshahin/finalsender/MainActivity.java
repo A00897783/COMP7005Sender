@@ -65,6 +65,9 @@ public class MainActivity extends Activity {
     FileInputStream fis = null;
     int fileCount;
     int sequenceNo;
+    private InetAddress host;
+    private DatagramSocket ds;
+
     Handler mHandler = null;
     private static final int REQUEST_CHOOSER = 1234;
 
@@ -82,6 +85,7 @@ public class MainActivity extends Activity {
         ((TextView) findViewById(R.id.tv_port_my)).setText(PORT_MY + "");
         TV_filePath = (TextView) findViewById(R.id.tv_file);
         TV_filePath.setText("/storage/emulated/0/DCIM/COMP7005/goodbye.txt");//"/storage/sdcard0/DCIM/COMP7005/goodbye.txt");
+
 
         tv = (TextView) findViewById(R.id.tv);
         mHandler = new Handler();
@@ -139,6 +143,12 @@ public class MainActivity extends Activity {
         mUDPReceiver.start();
         printOnPhoneScreen("sending SOS ");
         mHandler.postDelayed(timerForSOS, TIMER_MS);
+        try {
+            host = InetAddress.getByName(SERVER_IP);
+            ds = new DatagramSocket();  //DatagramSocket
+        } catch (Exception e) {
+            e.printStackTrace();
+        }
     }
     public void onClickStop(View v){
         mHandler.removeCallbacksAndMessages(null);
@@ -248,8 +258,6 @@ public class MainActivity extends Activity {
                 @Override
                 protected Void doInBackground(Void... params) {
                     try {
-                        DatagramSocket ds = new DatagramSocket();  //DatagramSocket
-                        InetAddress host = InetAddress.getByName(SERVER_IP);
                         dp = new DatagramPacket(data, data.length, host, SERVER_PORT);  //DatagramPacket
                         ds.send(dp);
                     } catch (Exception e) {
