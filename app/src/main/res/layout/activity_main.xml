@@ -63,10 +63,16 @@
 
     <Button
         android:id="@+id/button1"
-        android:text="connect"
+        android:text="send"
         android:layout_width="match_parent"
         android:layout_height="wrap_content"
         android:onClick="onClickSend"/>
+
+    <Button
+        android:text="stop"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:onClick="onClickStop"/>
 
     <TextView
         android:text="status"
