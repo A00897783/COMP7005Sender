@@ -55,7 +55,7 @@ public class MainActivity extends Activity {
         ((TextView) findViewById(R.id.tv_ip_my)).setText(IP_MY);
         ((TextView) findViewById(R.id.tv_port_my)).setText(PORT_MY + "");
         TV_filePath = (TextView)findViewById(R.id.tv_file);
-        TV_filePath.setText("/storage/emulated/0/Download/hello.txt");
+        TV_filePath.setText("/storage/sdcard0/DCIM/COMP7005/goodbye.txt");//"/storage/emulated/0/DCIM/COMP7005/goodbye.txt");
 
         tv = (TextView) findViewById(R.id.tv);
         mHandler = new Handler();
@@ -71,6 +71,7 @@ public class MainActivity extends Activity {
 
     public void onClickSend(View v){
         udpsender.send();
+        Log.d("send","clicked");
     }
     public void onClickClear(View v){
         st = "";
