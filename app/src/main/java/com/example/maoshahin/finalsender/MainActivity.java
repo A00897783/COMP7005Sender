@@ -3,10 +3,13 @@ package com.example.maoshahin.finalsender;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.Intent;
+import android.net.DhcpInfo;
 import android.net.Uri;
+import android.net.wifi.WifiManager;
 import android.os.AsyncTask;
 import android.os.Build;
 import android.os.Bundle;
+import android.text.format.Formatter;
 import android.util.Log;
 import android.view.View;
 import android.widget.Button;
@@ -41,23 +44,19 @@ public class MainActivity extends Activity {
     private String st = "";
     private UDPSender udpsender;
     private TextView TV_filePath;
-    private ArrayList<JSONObject> myWindow;// make window
+    private ArrayList<Frame> myWindow;// make window
 
 
     private static final int SERVER_PORT = 7005;
     private static final String SERVER_IP = "192.168.168.113";
     private static final int PORT_MY = 7005;
-    private static final String IP_MY = "192.168.168.111";
-
-
-    public static final String TYPE = "TYPE";
-    public static final String SEQ = "SEQ";
-    public static final String DATA = "DATA";
 
     public static final int WINDOW_SIZE = 6;
     public static final int DATA_SIZE = 1024;
     private static final int START_SEQUENCE_NUM = 1;
     private static final int TIMER_MS = 5000;
+
+
 
     private int framePosAcked;//how many frames in window have been acked
 
@@ -79,8 +78,12 @@ public class MainActivity extends Activity {
         setContentView(R.layout.activity_main);
         ((TextView) findViewById(R.id.tv_ip)).setText(SERVER_IP);
         ((TextView) findViewById(R.id.tv_port)).setText(SERVER_PORT + "");
-        ((TextView) findViewById(R.id.tv_ip_my)).setText(IP_MY);
         ((TextView) findViewById(R.id.tv_port_my)).setText(PORT_MY + "");
+        final WifiManager manager = (WifiManager) super.getSystemService(WIFI_SERVICE);
+        final DhcpInfo dhcp = manager.getDhcpInfo();
+        final String address = Formatter.formatIpAddress(dhcp.gateway);
+        ((TextView) findViewById(R.id.tv_ip_my)).setText(address);
+
         TV_filePath = (TextView) findViewById(R.id.tv_file);
         TV_filePath.setText("/storage/emulated/0/DCIM/COMP7005/goodbye.txt");//"/storage/emulated/0/DCIM/COMP7005/goodbye.txt");
 
@@ -102,49 +105,23 @@ public class MainActivity extends Activity {
         public void run() {
             int i = framePosAcked + 1;
             while (i < myWindow.size()) {//send rest of frames which is not acked
-                udpsender.send(myWindow.get(i).toString().getBytes());
-                try {
-                    printOnPhoneScreen("resending packet with seq# "+ (myWindow.get(i)).getInt(SEQ));
-                } catch (JSONException e) {
-                    e.printStackTrace();
-                }
-
+                udpsender.send(myWindow.get(i).toByte());
+                printOnPhoneScreen("resending packet with seq# "+ (myWindow.get(i)).SEQ);
                 i++;
             }
             mHandler.postDelayed(timer, TIMER_MS);
         }
     };
-    /*
-    private Runnable timerForSOS = new Runnable() {
-        @Override
-        public void run() {
-            int i = framePosAcked + 1;
-            JSONObject sendJson = null;
-            try {
-                sendJson = createJson("SOS", 0, null);
-            } catch (JSONException e) {
-                e.printStackTrace();
-            }
-            udpsender.send(sendJson.toString().getBytes());
-            printOnPhoneScreen("resending SOS");
-            mHandler.postDelayed(timerForSOS, TIMER_MS);
-        }
-    };*/
 
-
-    public void onClickSend(View v) throws IOException, JSONException {
+    public void onClickSend(View v) throws IOException {
         fis = new FileInputStream(TV_filePath.getText().toString());
         sequenceNo = START_SEQUENCE_NUM;
         fileCount = 0; // return from fis.read
         sendWindow();
-        //JSONObject sendJson = createJson("SOS", 0, null);
-        //udpsender.send(sendJson.toString().getBytes());
         if(mUDPReceiver == null) {
             mUDPReceiver = new UDPReceiver(MainActivity.this);
         }
         mUDPReceiver.start();
-        //printOnPhoneScreen("sending SOS ");
-        //mHandler.postDelayed(timerForSOS, TIMER_MS);
 
     }
     public void onClickStop(View v){
@@ -152,18 +129,18 @@ public class MainActivity extends Activity {
         mUDPReceiver.stop();
     }
 
-    public void sendWindow() throws IOException, JSONException {
+    public void sendWindow() throws IOException {
         byte[] sendData = null;
         byte[] data = new byte[DATA_SIZE];
-        myWindow = new ArrayList<JSONObject>();
+        myWindow = new ArrayList<Frame>();
         framePosAcked = -1;
 
         while (myWindow.size() < WINDOW_SIZE && fileCount != -1) { //we have "free / usable" frames in our window
             fileCount = fis.read(data);
             //fill all 6 frames in window ( this entire if chunk)
-            JSONObject sendJson = createJson("DAT", sequenceNo, data);
-            myWindow.add(sendJson);
-            sendData = sendJson.toString().getBytes();
+            Frame sendFrame = new Frame("DAT", sequenceNo, data);
+            myWindow.add(sendFrame);
+            sendData = sendFrame.toByte();
             udpsender.send(sendData);
             printOnPhoneScreen("sending data with seq# " + sequenceNo);
             sequenceNo++;
@@ -171,19 +148,19 @@ public class MainActivity extends Activity {
         mHandler.postDelayed(timer, TIMER_MS);
     }
 
-    public void ackArrived(JSONObject arrivedJson) throws JSONException, IOException {
-        if ((arrivedJson.getString(TYPE).equals("ACK"))) {
-            int seq = arrivedJson.getInt(SEQ);
+    public void ackArrived(Frame arrivedFrame) throws JSONException, IOException {
+        if ((arrivedFrame.TYPE.equals("ACK"))) {
+            int seq = arrivedFrame.SEQ;
             printOnPhoneScreen("ack arrived for seq# " + seq);
             while (framePosAcked < myWindow.size()-1 ) {
-                if (myWindow.get(framePosAcked+1).getInt(SEQ) <= seq) {
+                if (myWindow.get(framePosAcked+1).SEQ <= seq) {
                     framePosAcked++;
                     break;
                 }
             }
             if (fileCount == -1) {//after all the data is acked
-                JSONObject sendJson = createJson("EOT", 0, null);
-                byte[] sendData = sendJson.toString().getBytes();
+                Frame sendFrame = new Frame("EOT", 0, null);
+                byte[] sendData = sendFrame.toByte();
                 udpsender.send(sendData);
                 udpsender.send(sendData);
                 udpsender.send(sendData);
@@ -192,24 +169,15 @@ public class MainActivity extends Activity {
                 sendWindow();
             }
         }else{
-            Log.d("arrivedJson", arrivedJson.toString());
+            Log.d("arrivedFrame", arrivedFrame.toString());
         }
     }
-
-    private JSONObject createJson(String type, int sequenceNo, byte[] data) throws JSONException {
-        JSONObject packet = new JSONObject();
-        packet.put(TYPE, type);
-        packet.put(SEQ, sequenceNo);
-        packet.put(DATA, data.toString());
-        return packet;
-    }
-
     public void onClickClear(View v) {
         st = "";
         tv.setText(st);
     }
 
-    /*file chooser stuff*/
+    /*file chooser start*/
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         switch (requestCode) {
@@ -224,6 +192,8 @@ public class MainActivity extends Activity {
                 break;
         }
     }
+    /*file chooser end */
+
 
 
     public void printOnPhoneScreen(String msg) {
@@ -325,10 +295,10 @@ public class MainActivity extends Activity {
                     mDatagramRecvSocket.receive(receivePacket);
                     String packetString = new String(receivePacket.getData(), 0, receivePacket.getLength());
                     Log.d(TAG, "In run(): packet received [" + packetString + "]");
-                    JSONObject receivedJson = new JSONObject(packetString);
-                    String packetType = receivedJson.getString(mActivity.TYPE);
+                    Frame receivedFrame = Frame.createFrameFromByte(receivePacket.getData());
+                    String packetType = receivedFrame.TYPE;
                     if (packetType.equals("ACK")) {
-                        mActivity.ackArrived(receivedJson);
+                        mActivity.ackArrived(receivedFrame);
                     } else if (packetType.equals("EOT")) {
                         mActivity.finish();
                         Toast.makeText(mActivity, "File Transfer is successfully finished", Toast.LENGTH_LONG);
