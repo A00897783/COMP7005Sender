@@ -13,19 +13,38 @@ import java.io.IOException;
 
 public class Frame {
 
-    public String TYPE;
-    public int SEQ;
-    public byte[] DATA;
+    private String TYPE;
+    private int SEQ;
+    private byte[] DATA;
 
     public Frame (String t, int seq, byte[] data){
         TYPE = t;
         SEQ = seq;
         DATA = data;
     }
-    public Frame(){
+    public Frame (){
 
     }
 
+    public void setTYPE(String t){
+      TYPE = t;
+    }
+    public void setSEQ(int se){
+        SEQ = se;
+    }
+    public void setDATA(byte[] a){
+        DATA = a;
+    }
+
+    public String getTYPE(){
+        return TYPE;
+    }
+    public int getSEQ(){
+        return SEQ;
+    }
+    public byte[] getDATA(){
+        return DATA;
+    }
     public static Frame createFrameFromString(String arrived) throws IOException {
         ObjectMapper mapper = new ObjectMapper();
         Frame f = mapper.readValue(arrived, Frame.class);

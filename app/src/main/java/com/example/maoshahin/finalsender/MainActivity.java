@@ -21,11 +21,16 @@ import java.io.FileInputStream;
 import java.io.FileNotFoundException;
 import java.io.FileOutputStream;
 import java.io.IOException;
+import java.io.PrintStream;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
+import java.net.Inet4Address;
 import java.net.InetAddress;
+import java.net.NetworkInterface;
+import java.net.SocketException;
 import java.net.UnknownHostException;
 import java.util.ArrayList;
+import java.util.Enumeration;
 
 import android.os.Handler;
 import android.widget.Toast;
@@ -46,7 +51,7 @@ public class MainActivity extends Activity {
     private String st = "";
     private UDPSender udpsender;
     private TextView TV_filePath;
-    private ArrayList<Frame> myWindow;// make window
+    private ArrayList<Frame> myWindow;
 
 
     private static final int SERVER_PORT = 7005;
@@ -57,6 +62,7 @@ public class MainActivity extends Activity {
     public static final int DATA_SIZE = 1024;
     private static final int START_SEQUENCE_NUM = 1;
     private static final int TIMER_MS = 5000;
+    private static final int BUFFER_SIZE = DATA_SIZE*2;
 
 
     UDPReceiver mUDPReceiver = null;
@@ -66,6 +72,8 @@ public class MainActivity extends Activity {
 
     Handler mHandler = null;
     private static final int REQUEST_CHOOSER = 1234;
+
+
 
 
     /**
@@ -78,10 +86,12 @@ public class MainActivity extends Activity {
         ((TextView) findViewById(R.id.tv_ip)).setText(SERVER_IP);
         ((TextView) findViewById(R.id.tv_port)).setText(SERVER_PORT + "");
         ((TextView) findViewById(R.id.tv_port_my)).setText(PORT_MY + "");
-        final WifiManager manager = (WifiManager) super.getSystemService(WIFI_SERVICE);
-        final DhcpInfo dhcp = manager.getDhcpInfo();
-        final String address = Formatter.formatIpAddress(dhcp.gateway);
-        ((TextView) findViewById(R.id.tv_ip_my)).setText(address);
+        ((TextView) findViewById(R.id.tv_ip_my)).setText(getIpAddress());
+
+        if(mUDPReceiver == null) {
+            mUDPReceiver = new UDPReceiver(MainActivity.this);
+        }
+        mUDPReceiver.start();
 
         TV_filePath = (TextView) findViewById(R.id.tv_file);
         TV_filePath.setText("/storage/emulated/0/DCIM/COMP7005/goodbye2.txt");//"/storage/emulated/0/DCIM/COMP7005/goodbye.txt");
@@ -90,6 +100,25 @@ public class MainActivity extends Activity {
         tv = (TextView) findViewById(R.id.tv);
         mHandler = new Handler();
         udpsender = new UDPSender();
+    }
+
+    public String getIpAddress() {
+        try {
+            for (Enumeration en = NetworkInterface.getNetworkInterfaces(); en.hasMoreElements();) {
+                NetworkInterface intf = (NetworkInterface) en.nextElement();
+                for (Enumeration enumIpAddr = intf.getInetAddresses(); enumIpAddr.hasMoreElements();) {
+                    InetAddress inetAddress = (InetAddress) enumIpAddr.nextElement();
+                    if (!inetAddress.isLoopbackAddress()&&inetAddress instanceof Inet4Address) {
+                        String ipAddress=inetAddress.getHostAddress().toString();
+                        Log.e("IP address",""+ipAddress);
+                        return ipAddress;
+                    }
+                }
+            }
+        } catch (SocketException e) {
+            e.printStackTrace();
+        }
+        return null;
     }
 
 
@@ -104,7 +133,7 @@ public class MainActivity extends Activity {
         public void run() {
             for (int i = 0; i < myWindow.size(); i++) {//send rest of frames which is not acked
                 udpsender.send(myWindow.get(i).toString().getBytes());
-                printOnPhoneScreen("resending packet with seq# "+ (myWindow.get(i)).SEQ);
+                printOnPhoneScreen("resending packet with seq# "+ (myWindow.get(i)).getSEQ());
             }
             mHandler.postDelayed(timer, TIMER_MS);
         }
@@ -117,38 +146,42 @@ public class MainActivity extends Activity {
         sendWindow();
         if(mUDPReceiver == null) {
             mUDPReceiver = new UDPReceiver(MainActivity.this);
+            mUDPReceiver.start();
+        }else{
+            printOnPhoneScreen("ACK Receiver thread running");
         }
-        mUDPReceiver.start();
+
 
     }
     public void onClickStop(View v){
         mHandler.removeCallbacksAndMessages(null);
-        mUDPReceiver.stop();
     }
 
     public void sendWindow() throws IOException {
         byte[] sendData = null;
-        byte[] data = new byte[DATA_SIZE];
         myWindow = new ArrayList<Frame>();
 
-        while (myWindow.size() < WINDOW_SIZE && fileCount != -1) { //we have "free / usable" frames in our window
+
+        while (myWindow.size() < WINDOW_SIZE && fileCount != -1) { //we have "free / usable" frames in ou
+            byte[] data = new byte[DATA_SIZE];
             fileCount = fis.read(data);
             //fill all 6 frames in window ( this entire if chunk)
             Frame sendFrame = new Frame("DAT", sequenceNo, data);
             myWindow.add(sendFrame);
             sendData = sendFrame.toString().getBytes();
             udpsender.send(sendData);
-            printOnPhoneScreen("sending data with seq# " + sendFrame.SEQ);
+            printOnPhoneScreen("sending data with seq# " + sendFrame.getSEQ());
             sequenceNo++;
         }
         mHandler.postDelayed(timer, TIMER_MS);
     }
 
     public void ackArrived(Frame arrivedFrame) throws JSONException, IOException {
-        if ((arrivedFrame.TYPE.equals("ACK"))) {
-            int highestACK = arrivedFrame.SEQ;
+        if ((arrivedFrame.getTYPE().equals("ACK"))) {
+            int highestACK = arrivedFrame.getSEQ();
             printOnPhoneScreen("ack arrived for seq# " + highestACK);
-            while (myWindow.size()!=0 && myWindow.get(0).SEQ <= highestACK ) {
+            while (myWindow.size()!=0 && myWindow.get(0).getSEQ() <= highestACK ) {
+                printOnPhoneScreen("deleting seq# " + myWindow.get(0).getSEQ());
                 myWindow.remove(0);
             }
             if (fileCount == -1) {//after all the data is acked
@@ -203,7 +236,9 @@ public class MainActivity extends Activity {
 
     @Override
     public void onDestroy() {
-        mUDPReceiver.stop();
+        if(mUDPReceiver != null) {
+            mUDPReceiver.stop();
+        }
         super.onDestroy();
     }
 
@@ -235,7 +270,6 @@ public class MainActivity extends Activity {
                     }
                     return null;
                 }
-
                 protected void onPostExecute(Void result) {
                     super.onPostExecute(result);
                 }
@@ -270,41 +304,48 @@ public class MainActivity extends Activity {
         public void stop() {
             if( udpreceiverthread != null ) {
                 udpreceiverthread.interrupt();
+                mDatagramRecvSocket.disconnect();
+                mDatagramRecvSocket.close();
             }
         }
 
         @Override
         public void run() {
-            byte receiveBuffer[] = new byte[1024];
+            byte receiveBuffer[] = new byte[BUFFER_SIZE];
             DatagramPacket receivePacket = new DatagramPacket(receiveBuffer, receiveBuffer.length);
+            if( mDatagramRecvSocket == null) {
                 try {
                     mDatagramRecvSocket = new DatagramSocket(mActivity.PORT_MY);
                 } catch (Exception e) {
                     e.printStackTrace();
                 }
-            Log.d(TAG, "In run(): thread start.");
+            }
             try {
-                while (!udpreceiverthread.interrupted()) {//mIsArive &&
+                while (!udpreceiverthread.interrupted()) {
                     mDatagramRecvSocket.receive(receivePacket);
                     String packetString = new String(receivePacket.getData(), 0, receivePacket.getLength());
                     Log.d(TAG, "In run(): packet received [" + packetString + "]");
                     Frame receivedFrame = Frame.createFrameFromString(packetString);
-                    String packetType = receivedFrame.TYPE;
+                    String packetType = receivedFrame.getTYPE();
                     if (packetType.equals("ACK")) {
                         mActivity.ackArrived(receivedFrame);
                     } else if (packetType.equals("EOT")) {
                         mActivity.printOnPhoneScreen("File Transfer is successfully finished");
+                        mHandler.removeCallbacksAndMessages(null);
                         break;
                     }
                 }
-                Log.d(TAG, "In run(): thread end.");
+                mActivity.printOnPhoneScreen("ACK Receiver thread end");
                 if(mDatagramRecvSocket!=null) {
+                    mDatagramRecvSocket.disconnect();
                     mDatagramRecvSocket.close();
                 }
             } catch (Exception e) {
                 e.printStackTrace();
             }finally {
+
                 udpreceiverthread = null;
+                mActivity.mUDPReceiver = null;
             }
 
         }
