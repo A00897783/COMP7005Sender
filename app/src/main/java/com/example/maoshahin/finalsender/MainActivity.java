@@ -105,7 +105,7 @@ public class MainActivity extends Activity {
         public void run() {
             int i = framePosAcked + 1;
             while (i < myWindow.size()) {//send rest of frames which is not acked
-                udpsender.send(myWindow.get(i).toByte());
+                udpsender.send(myWindow.get(i).toString().getBytes());
                 printOnPhoneScreen("resending packet with seq# "+ (myWindow.get(i)).SEQ);
                 i++;
             }
@@ -140,7 +140,7 @@ public class MainActivity extends Activity {
             //fill all 6 frames in window ( this entire if chunk)
             Frame sendFrame = new Frame("DAT", sequenceNo, data);
             myWindow.add(sendFrame);
-            sendData = sendFrame.toByte();
+            sendData = sendFrame.toString().getBytes();
             udpsender.send(sendData);
             printOnPhoneScreen("sending data with seq# " + sequenceNo);
             sequenceNo++;
@@ -160,7 +160,7 @@ public class MainActivity extends Activity {
             }
             if (fileCount == -1) {//after all the data is acked
                 Frame sendFrame = new Frame("EOT", 0, null);
-                byte[] sendData = sendFrame.toByte();
+                byte[] sendData = sendFrame.toString().getBytes();
                 udpsender.send(sendData);
                 udpsender.send(sendData);
                 udpsender.send(sendData);
@@ -295,7 +295,7 @@ public class MainActivity extends Activity {
                     mDatagramRecvSocket.receive(receivePacket);
                     String packetString = new String(receivePacket.getData(), 0, receivePacket.getLength());
                     Log.d(TAG, "In run(): packet received [" + packetString + "]");
-                    Frame receivedFrame = Frame.createFrameFromByte(receivePacket.getData());
+                    Frame receivedFrame = Frame.createFrameFromString(packetString);
                     String packetType = receivedFrame.TYPE;
                     if (packetType.equals("ACK")) {
                         mActivity.ackArrived(receivedFrame);
