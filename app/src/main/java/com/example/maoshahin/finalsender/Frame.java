@@ -4,8 +4,6 @@ package com.example.maoshahin.finalsender;
  * Created by mao on 15/11/30.
  */
 
-import android.util.Base64;
-
 import com.fasterxml.jackson.core.JsonParseException;
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -24,6 +22,9 @@ public class Frame {
         SEQ = seq;
         DATA = data;
     }
+    public Frame(){
+
+    }
 
     public static Frame createFrameFromString(String arrived) throws IOException {
         ObjectMapper mapper = new ObjectMapper();
@@ -31,10 +32,16 @@ public class Frame {
         return f;
     }
 
-    public byte[] toByte() throws JsonProcessingException {
+    @Override
+    public String toString() {
         ObjectMapper mapper = new ObjectMapper();
         mapper.enable(SerializationFeature.INDENT_OUTPUT);
-        String json = mapper.writeValueAsString(this);
-        return  Base64.decode(json,Base64.DEFAULT);
+        String json = null;
+        try {
+            json = mapper.writeValueAsString(this);
+        } catch (JsonProcessingException e) {
+            e.printStackTrace();
+        }
+        return json;
     }
 }

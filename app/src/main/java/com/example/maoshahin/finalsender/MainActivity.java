@@ -30,6 +30,8 @@ import java.util.ArrayList;
 import android.os.Handler;
 import android.widget.Toast;
 
+import com.fasterxml.jackson.databind.JsonNode;
+import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ipaulpro.afilechooser.utils.FileUtils;
 
 import org.json.JSONException;
@@ -57,9 +59,6 @@ public class MainActivity extends Activity {
     private static final int TIMER_MS = 5000;
 
 
-
-    private int framePosAcked;//how many frames in window have been acked
-
     UDPReceiver mUDPReceiver = null;
     FileInputStream fis = null;
     int fileCount;
@@ -85,7 +84,7 @@ public class MainActivity extends Activity {
         ((TextView) findViewById(R.id.tv_ip_my)).setText(address);
 
         TV_filePath = (TextView) findViewById(R.id.tv_file);
-        TV_filePath.setText("/storage/emulated/0/DCIM/COMP7005/goodbye.txt");//"/storage/emulated/0/DCIM/COMP7005/goodbye.txt");
+        TV_filePath.setText("/storage/emulated/0/DCIM/COMP7005/goodbye2.txt");//"/storage/emulated/0/DCIM/COMP7005/goodbye.txt");
 
 
         tv = (TextView) findViewById(R.id.tv);
@@ -103,11 +102,9 @@ public class MainActivity extends Activity {
     private Runnable timer = new Runnable() {
         @Override
         public void run() {
-            int i = framePosAcked + 1;
-            while (i < myWindow.size()) {//send rest of frames which is not acked
+            for (int i = 0; i < myWindow.size(); i++) {//send rest of frames which is not acked
                 udpsender.send(myWindow.get(i).toString().getBytes());
                 printOnPhoneScreen("resending packet with seq# "+ (myWindow.get(i)).SEQ);
-                i++;
             }
             mHandler.postDelayed(timer, TIMER_MS);
         }
@@ -133,7 +130,6 @@ public class MainActivity extends Activity {
         byte[] sendData = null;
         byte[] data = new byte[DATA_SIZE];
         myWindow = new ArrayList<Frame>();
-        framePosAcked = -1;
 
         while (myWindow.size() < WINDOW_SIZE && fileCount != -1) { //we have "free / usable" frames in our window
             fileCount = fis.read(data);
@@ -142,7 +138,7 @@ public class MainActivity extends Activity {
             myWindow.add(sendFrame);
             sendData = sendFrame.toString().getBytes();
             udpsender.send(sendData);
-            printOnPhoneScreen("sending data with seq# " + sequenceNo);
+            printOnPhoneScreen("sending data with seq# " + sendFrame.SEQ);
             sequenceNo++;
         }
         mHandler.postDelayed(timer, TIMER_MS);
@@ -150,13 +146,10 @@ public class MainActivity extends Activity {
 
     public void ackArrived(Frame arrivedFrame) throws JSONException, IOException {
         if ((arrivedFrame.TYPE.equals("ACK"))) {
-            int seq = arrivedFrame.SEQ;
-            printOnPhoneScreen("ack arrived for seq# " + seq);
-            while (framePosAcked < myWindow.size()-1 ) {
-                if (myWindow.get(framePosAcked+1).SEQ <= seq) {
-                    framePosAcked++;
-                    break;
-                }
+            int highestACK = arrivedFrame.SEQ;
+            printOnPhoneScreen("ack arrived for seq# " + highestACK);
+            while (myWindow.size()!=0 && myWindow.get(0).SEQ <= highestACK ) {
+                myWindow.remove(0);
             }
             if (fileCount == -1) {//after all the data is acked
                 Frame sendFrame = new Frame("EOT", 0, null);
@@ -164,7 +157,7 @@ public class MainActivity extends Activity {
                 udpsender.send(sendData);
                 udpsender.send(sendData);
                 udpsender.send(sendData);
-            } else if (framePosAcked == myWindow.size()-1) {//if framePos
+            } else if (myWindow.size() == 0) {//if framePos
                 mHandler.removeCallbacksAndMessages(null);
                 sendWindow();
             }
@@ -300,12 +293,7 @@ public class MainActivity extends Activity {
                     if (packetType.equals("ACK")) {
                         mActivity.ackArrived(receivedFrame);
                     } else if (packetType.equals("EOT")) {
-                        mActivity.finish();
-                        Toast.makeText(mActivity, "File Transfer is successfully finished", Toast.LENGTH_LONG);
-                        break;
-                    } else if (packetType.equals("ERR")) {
-                        mActivity.finish();
-                        Toast.makeText(mActivity, "There was an error", Toast.LENGTH_LONG);
+                        mActivity.printOnPhoneScreen("File Transfer is successfully finished");
                         break;
                     }
                 }
