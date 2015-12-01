@@ -3,45 +3,30 @@ package com.example.maoshahin.finalsender;
 import android.annotation.SuppressLint;
 import android.app.Activity;
 import android.content.Intent;
-import android.net.DhcpInfo;
 import android.net.Uri;
-import android.net.wifi.WifiManager;
 import android.os.AsyncTask;
 import android.os.Build;
 import android.os.Bundle;
-import android.text.format.Formatter;
 import android.util.Log;
 import android.view.View;
-import android.widget.Button;
-import android.widget.EditText;
 import android.widget.TextView;
 
-import java.io.File;
 import java.io.FileInputStream;
-import java.io.FileNotFoundException;
-import java.io.FileOutputStream;
 import java.io.IOException;
-import java.io.PrintStream;
 import java.net.DatagramPacket;
 import java.net.DatagramSocket;
 import java.net.Inet4Address;
 import java.net.InetAddress;
 import java.net.NetworkInterface;
 import java.net.SocketException;
-import java.net.UnknownHostException;
 import java.util.ArrayList;
 import java.util.Enumeration;
 
 import android.os.Handler;
-import android.widget.Toast;
 
-import com.fasterxml.jackson.databind.JsonNode;
-import com.fasterxml.jackson.databind.ObjectMapper;
 import com.ipaulpro.afilechooser.utils.FileUtils;
 
 import org.json.JSONException;
-import org.json.JSONObject;
-
 
 public class MainActivity extends Activity {
 
@@ -55,7 +40,7 @@ public class MainActivity extends Activity {
 
 
     private static final int SERVER_PORT = 7005;
-    private static final String SERVER_IP = "192.168.168.113";
+    private static final String SERVER_IP = "192.168.1.38";
     private static final int PORT_MY = 7005;
 
     public static final int WINDOW_SIZE = 6;
@@ -74,8 +59,6 @@ public class MainActivity extends Activity {
     private static final int REQUEST_CHOOSER = 1234;
 
 
-
-
     /**
      * Called when the activity is first created.
      */
@@ -83,25 +66,33 @@ public class MainActivity extends Activity {
     public void onCreate(Bundle savedInstanceState) {
         super.onCreate(savedInstanceState);
         setContentView(R.layout.activity_main);
+        // set fields
         ((TextView) findViewById(R.id.tv_ip)).setText(SERVER_IP);
         ((TextView) findViewById(R.id.tv_port)).setText(SERVER_PORT + "");
         ((TextView) findViewById(R.id.tv_port_my)).setText(PORT_MY + "");
         ((TextView) findViewById(R.id.tv_ip_my)).setText(getIpAddress());
+        TV_filePath = (TextView) findViewById(R.id.tv_file);
+        TV_filePath.setText("/storage/emulated/0/DCIM/COMP7005/20KB.txt");
 
+
+        // create receiver thread for acks
         if(mUDPReceiver == null) {
             mUDPReceiver = new UDPReceiver(MainActivity.this);
         }
         mUDPReceiver.start();
 
-        TV_filePath = (TextView) findViewById(R.id.tv_file);
-        TV_filePath.setText("/storage/emulated/0/DCIM/COMP7005/goodbye2.txt");//"/storage/emulated/0/DCIM/COMP7005/goodbye.txt");
-
-
+        // get status field and create hundler to add logs to the field from different thread
         tv = (TextView) findViewById(R.id.tv);
         mHandler = new Handler();
+
+        // create sender class
         udpsender = new UDPSender();
     }
 
+    /**
+     * get local ip address and return as a string
+     * @return ip address
+     */
     public String getIpAddress() {
         try {
             for (Enumeration en = NetworkInterface.getNetworkInterfaces(); en.hasMoreElements();) {
@@ -122,88 +113,22 @@ public class MainActivity extends Activity {
     }
 
 
+    /**
+     * called when choose file is pressed, start activity to choose files
+     * @param v
+     */
     public void onClickChooseFile(View v) {
         Intent getContentIntent = FileUtils.createGetContentIntent();
         Intent intent = Intent.createChooser(getContentIntent, "Select a file");
         startActivityForResult(intent, REQUEST_CHOOSER);
     }
 
-    private Runnable timer = new Runnable() {
-        @Override
-        public void run() {
-            for (int i = 0; i < myWindow.size(); i++) {//send rest of frames which is not acked
-                udpsender.send(myWindow.get(i).toString().getBytes());
-                printOnPhoneScreen("resending packet with seq# "+ (myWindow.get(i)).getSEQ());
-            }
-            mHandler.postDelayed(timer, TIMER_MS);
-        }
-    };
-
-    public void onClickSend(View v) throws IOException {
-        fis = new FileInputStream(TV_filePath.getText().toString());
-        sequenceNo = START_SEQUENCE_NUM;
-        fileCount = 0; // return from fis.read
-        sendWindow();
-        if(mUDPReceiver == null) {
-            mUDPReceiver = new UDPReceiver(MainActivity.this);
-            mUDPReceiver.start();
-        }else{
-            printOnPhoneScreen("ACK Receiver thread running");
-        }
-
-
-    }
-    public void onClickStop(View v){
-        mHandler.removeCallbacksAndMessages(null);
-    }
-
-    public void sendWindow() throws IOException {
-        byte[] sendData = null;
-        myWindow = new ArrayList<Frame>();
-
-
-        while (myWindow.size() < WINDOW_SIZE && fileCount != -1) { //we have "free / usable" frames in ou
-            byte[] data = new byte[DATA_SIZE];
-            fileCount = fis.read(data);
-            //fill all 6 frames in window ( this entire if chunk)
-            Frame sendFrame = new Frame("DAT", sequenceNo, data);
-            myWindow.add(sendFrame);
-            sendData = sendFrame.toString().getBytes();
-            udpsender.send(sendData);
-            printOnPhoneScreen("sending data with seq# " + sendFrame.getSEQ());
-            sequenceNo++;
-        }
-        mHandler.postDelayed(timer, TIMER_MS);
-    }
-
-    public void ackArrived(Frame arrivedFrame) throws JSONException, IOException {
-        if ((arrivedFrame.getTYPE().equals("ACK"))) {
-            int highestACK = arrivedFrame.getSEQ();
-            printOnPhoneScreen("ack arrived for seq# " + highestACK);
-            while (myWindow.size()!=0 && myWindow.get(0).getSEQ() <= highestACK ) {
-                printOnPhoneScreen("deleting seq# " + myWindow.get(0).getSEQ());
-                myWindow.remove(0);
-            }
-            if (fileCount == -1) {//after all the data is acked
-                Frame sendFrame = new Frame("EOT", 0, null);
-                byte[] sendData = sendFrame.toString().getBytes();
-                udpsender.send(sendData);
-                udpsender.send(sendData);
-                udpsender.send(sendData);
-            } else if (myWindow.size() == 0) {//if framePos
-                mHandler.removeCallbacksAndMessages(null);
-                sendWindow();
-            }
-        }else{
-            Log.d("arrivedFrame", arrivedFrame.toString());
-        }
-    }
-    public void onClickClear(View v) {
-        st = "";
-        tv.setText(st);
-    }
-
-    /*file chooser start*/
+    /**
+     * method needed to implement to choose file, set path of a file after choosing
+     * @param requestCode
+     * @param resultCode
+     * @param data
+     */
     @Override
     protected void onActivityResult(int requestCode, int resultCode, Intent data) {
         switch (requestCode) {
@@ -218,10 +143,122 @@ public class MainActivity extends Activity {
                 break;
         }
     }
-    /*file chooser end */
+
+    /**
+     * used to resend windows. called when it times out
+     */
+    private Runnable timer = new Runnable() {
+        @Override
+        public void run() {
+            for (int i = 0; i < myWindow.size(); i++) {//send rest of frames which is not acked
+                udpsender.send(myWindow.get(i).toString().getBytes());
+                printOnPhoneScreen("resending packet with seq# "+ (myWindow.get(i)).getSEQ());
+            }
+            mHandler.postDelayed(timer, TIMER_MS);
+        }
+    };
+
+    /**
+     * called when send button is clicked. send first frames in window and start receiver thread
+     * @param v
+     * @throws IOException
+     */
+    public void onClickSend(View v) throws IOException {
+        fis = new FileInputStream(TV_filePath.getText().toString());
+        sequenceNo = START_SEQUENCE_NUM;
+        fileCount = 0; // return from fis.read
+        sendWindow();
+        if(mUDPReceiver == null) {
+            // start receiver thread if it is not initialized
+            mUDPReceiver = new UDPReceiver(MainActivity.this);
+            mUDPReceiver.start();
+        }else{
+            printOnPhoneScreen("ACK Receiver thread running");
+        }
 
 
+    }
 
+    /**
+     * called when stop button is clicked. Stop times
+     * @param v
+     */
+    public void onClickStop(View v){
+        mHandler.removeCallbacksAndMessages(null);
+    }
+
+    /**
+     * method to send frames in a window for the first time
+     * @throws IOException
+     */
+    public void sendWindow() throws IOException {
+        byte[] sendData = null;
+        myWindow = new ArrayList<Frame>();
+        //till window fills up to WINDOW_SIZE or it gets to the end of file
+        while (myWindow.size() < WINDOW_SIZE && fileCount != -1) {
+            // create frame
+            byte[] data = new byte[DATA_SIZE];
+            fileCount = fis.read(data);
+            Frame sendFrame = new Frame("DAT", sequenceNo, data);
+            // put frame into window
+            myWindow.add(sendFrame);
+            // send data
+            sendData = sendFrame.toString().getBytes();
+            udpsender.send(sendData);
+            printOnPhoneScreen("sending data with seq# " + sendFrame.getSEQ());
+            sequenceNo++;
+        }
+        mHandler.postDelayed(timer, TIMER_MS);
+    }
+
+    /**
+     * this method is called from receiver thread.
+     * It does
+     * - shrink the window size when ack is received
+     * - prepare and send new window when all frames in a window is acked
+     * - send EOT when all frames are acked
+     * @param arrivedFrame
+     * @throws JSONException
+     * @throws IOException
+     */
+    public void ackArrived(Frame arrivedFrame) throws JSONException, IOException {
+        if ((arrivedFrame.getTYPE().equals("ACK"))) {
+            int highestACK = arrivedFrame.getSEQ();
+            printOnPhoneScreen("ack arrived for seq# " + highestACK);
+            //shrink the window depending on the sequence number of the ack
+            while (myWindow.size()!=0 && myWindow.get(0).getSEQ() <= highestACK ) {
+                printOnPhoneScreen("deleting a frame with seq# " + myWindow.get(0).getSEQ() + " from window");
+                myWindow.remove(0);
+            }
+            if (myWindow.size() == 0) {//if all frames in window are acked
+                mHandler.removeCallbacksAndMessages(null); // stop timers for window
+                if (fileCount == -1) { //after all the data is acked, send EOT three times
+                    Frame sendFrame = new Frame("EOT", 0, null);
+                    printOnPhoneScreen("Sending EOT");
+                    byte[] sendData = sendFrame.toString().getBytes();
+                    udpsender.send(sendData);
+                    udpsender.send(sendData);
+                    udpsender.send(sendData);
+                }else {
+                    sendWindow();
+                }
+            }
+        }
+    }
+
+    /**
+     * method to clear status field
+     * @param v
+     */
+    public void onClickClear(View v) {
+        st = "";
+        tv.setText(st);
+    }
+
+    /**
+     * method to put logs in status field
+     * @param msg
+     */
     public void printOnPhoneScreen(String msg) {
         st += msg+"\n";
         mHandler.post(new Runnable() {
@@ -233,7 +270,9 @@ public class MainActivity extends Activity {
         });
     }
 
-
+    /**
+     * called when the app is closed. stop receiver thread
+     */
     @Override
     public void onDestroy() {
         if(mUDPReceiver != null) {
@@ -242,15 +281,19 @@ public class MainActivity extends Activity {
         super.onDestroy();
     }
 
+    /**
+     * class to send data to network emulator
+     */
     public class UDPSender {
         private AsyncTask<Void, Void, Void> async_cient;
         private InetAddress host;
         private DatagramSocket ds;
 
         public UDPSender(){
+            // set all variables needed for transfer
             try {
                 host = InetAddress.getByName(SERVER_IP);
-                ds = new DatagramSocket();  //DatagramSocket
+                ds = new DatagramSocket();
             } catch (Exception e) {
                 e.printStackTrace();
             }
@@ -262,6 +305,7 @@ public class MainActivity extends Activity {
                 @Override
                 protected Void doInBackground(Void... params) {
                     try {
+                        // send data
                         dp = new DatagramPacket(data, data.length, host, SERVER_PORT);  //DatagramPacket
                         ds.send(dp);
                     } catch (Exception e) {
@@ -269,9 +313,6 @@ public class MainActivity extends Activity {
 
                     }
                     return null;
-                }
-                protected void onPostExecute(Void result) {
-                    super.onPostExecute(result);
                 }
             };
 
@@ -281,8 +322,10 @@ public class MainActivity extends Activity {
         }
     }
 
+    /**
+     * Receiver thread for acknowledgments
+     */
     class UDPReceiver implements Runnable {
-        private static final String TAG = "UDPReceiverThread";
         DatagramSocket mDatagramRecvSocket = null;
         MainActivity mActivity = null;
 
@@ -294,6 +337,9 @@ public class MainActivity extends Activity {
 
         }
 
+        /**
+         * called to start thread
+         */
         public void start() {
             if( udpreceiverthread == null ) {
                 udpreceiverthread = new Thread( this );
@@ -301,6 +347,9 @@ public class MainActivity extends Activity {
             }
         }
 
+        /**
+         * called to stop thread
+         */
         public void stop() {
             if( udpreceiverthread != null ) {
                 udpreceiverthread.interrupt();
@@ -311,6 +360,7 @@ public class MainActivity extends Activity {
 
         @Override
         public void run() {
+            // set variables needed for receiving packets
             byte receiveBuffer[] = new byte[BUFFER_SIZE];
             DatagramPacket receivePacket = new DatagramPacket(receiveBuffer, receiveBuffer.length);
             if( mDatagramRecvSocket == null) {
@@ -322,20 +372,22 @@ public class MainActivity extends Activity {
             }
             try {
                 while (!udpreceiverthread.interrupted()) {
+                    // receive and convert it to Frame object
                     mDatagramRecvSocket.receive(receivePacket);
                     String packetString = new String(receivePacket.getData(), 0, receivePacket.getLength());
-                    Log.d(TAG, "In run(): packet received [" + packetString + "]");
                     Frame receivedFrame = Frame.createFrameFromString(packetString);
+
                     String packetType = receivedFrame.getTYPE();
                     if (packetType.equals("ACK")) {
-                        mActivity.ackArrived(receivedFrame);
+                        mActivity.ackArrived(receivedFrame);//notify to main thread
                     } else if (packetType.equals("EOT")) {
                         mActivity.printOnPhoneScreen("File Transfer is successfully finished");
-                        mHandler.removeCallbacksAndMessages(null);
+                        mHandler.removeCallbacksAndMessages(null);// stop timers
                         break;
                     }
                 }
                 mActivity.printOnPhoneScreen("ACK Receiver thread end");
+                // close sockets
                 if(mDatagramRecvSocket!=null) {
                     mDatagramRecvSocket.disconnect();
                     mDatagramRecvSocket.close();
